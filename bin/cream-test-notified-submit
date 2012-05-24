@@ -1,0 +1,122 @@
+#!/usr/bin/python
+
+import os, os.path
+import sys
+import re, string
+import threading
+
+from CREAMTestUtils import testsuite_utils, job_utils, CEMonitorConsumer, job_monitor
+
+class JobMonitor(job_monitor.JobMonitor):
+    
+    def __init__(self, parameters, pManager=None, iManager=None):
+        job_monitor.JobMonitor.__init__(self, parameters, pManager, iManager)
+        self.finishedJobs = job_utils.JobProcessed()
+        
+    def shutdown(self):
+        job_monitor.JobMonitor.shutdown(self)
+        if self.tableOfResults['ABORTED']>0 or self.tableOfResults['CANCELLED']>0:
+            return 1
+        return 0
+
+def main():
+
+    parameters = testsuite_utils.Parameters(\
+                                            'submit a sequence of jobs and wait for notifications',\
+                                            '[OPTION] -R | --resourceURI RESOURCEURI',\
+                                            '''Submit a given number jobs keeping track of their \
+status via CEMonitor notifications. \
+The test keeps a given number of job running on the CE.''')
+    
+    parameters.register('rate', 'd', 30, testsuite_utils.checkRate, descr='''\
+set the notification rate in seconds for the subscription on CEMonitor (DEFAULT is 30s)''')
+    
+    parameters.register('numberOfJob', 'd', 1, testsuite_utils.atLeastOne, descr='''\
+set the number of jobs to submit (DEFAULT 1)''')
+    
+    parameters.register('maxRunningJobs', 'd', 100, testsuite_utils.atLeastOne, descr='''\
+set the max number of job which can be enqueued in the service (DEFAULT 100)''')
+    
+    parameters.register('delegationType', 's', 'single', testsuite_utils.checkRenewType,'D',\
+                        descr='''specify the delegation management type: single, one delegated \
+proxy for all submissions, or multiple, one delegated proxy per job (DEFAULT is single)''')
+    
+    parameters.register('resourceURI', 's', '', testsuite_utils.checkResourceURI, 'R',\
+                        descr='''define the URI of the resource under testing, the format is \
+<host>[:<port>]/cream-<lrms>-<queue>. \
+This option is mandatory and no default value is defined''')
+    
+    parameters.register('maxConcurrentSubmit', 'd', 1, testsuite_utils.atLeastOne, 'C',\
+                        descr='''define the number of concurrent submit, (DEFAULT is 1)''')
+    
+    parameters.register('jdl', 's', descr='''define the path for the jdl file, if omitted 
+a predefined jdl will be used with simple sleep as executable (5 times the rate)''')
+    
+    parameters.register('consumerPort', 'd', 9000, testsuite_utils.checkPort, 'p', descr='''\
+define the port for the consumer service (DEFAULT is 9000)''')
+
+    parameters.register('vo', 's', '', testsuite_utils.checkVO, '', descr='''\
+set the VO name to be used for the test; this parameter is mandatory whenever \
+X509_USER_CERT and X509_USER_KEY are defined, no default is available''')
+    
+    parameters.register('valid', 's', '00:10', testsuite_utils.checkValid, '', descr='''\
+set the voms-proxy duration in the format HH:MM (DEFAULT 00:10)''')
+    
+    parameters.setDefaultEnvs(consumerKeys=True)
+    parameters.addEnvItem(('NOTIFIED_SUBMIT_CONFIG_FILE','''\
+location of the configuration file for this test. The configuration file contains a list \
+of properties (the format is key=value); the set of keys correspond to the set \
+of the long options of this test'''))
+    
+    if os.environ.has_key("NOTIFIED_SUBMIT_CONFIG_FILE"):
+        confFileName = os.environ["NOTIFIED_SUBMIT_CONFIG_FILE"]
+    else:
+        confFileName = None
+
+    parameters.parseConfigFileAndOptList(sys.argv[1:], confFileName)
+
+    testsuite_utils.mainLogger.setup(parameters.logConf)
+    
+    if parameters.jdl=='':
+        parameters.jdl = testsuite_utils.createTempJDL(parameters.rate*5)
+        if parameters.jdl==None:
+            sys.exit(1)
+
+    monitorThread = None
+    consumer = None
+    try:
+        if parameters.interactive:
+            interfaceMan = testsuite_utils.InterfaceManager()
+        else:
+            interfaceMan = None
+        vomsManager = job_utils.VOMSProxyManager(parameters)
+        monitorThread = JobMonitor(parameters, vomsManager, interfaceMan)
+        renewalManager = job_utils.ProxyRenewer(parameters, monitorThread, vomsManager)
+        
+        address = ('', parameters.consumerPort)
+        consumer = CEMonitorConsumer.ConsumerServer(address, parameters, monitorThread)
+        
+        consumerThread = threading.Thread(target=consumer)
+        consumerThread.start()
+        
+        monitorThread.start()
+        renewalManager.start()
+        if parameters.interactive:
+            interfaceMan.run(monitorThread)
+            interfaceMan.close()
+        monitorThread.join()
+        renewalManager.halt()
+        
+    except Exception, e:
+        print e
+
+    if consumer<>None:
+        consumer.halt()
+    if monitorThread<>None:
+        sys.exit(monitorThread.shutdown())
+    else:
+        sys.exit(-1)
+        
+
+if __name__ == "__main__":
+    main()

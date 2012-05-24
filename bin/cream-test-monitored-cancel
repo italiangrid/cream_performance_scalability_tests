@@ -1,0 +1,143 @@
+#!/usr/bin/python
+
+import os,sys
+import re, string
+
+from CREAMTestUtils import testsuite_utils, job_utils, job_poller
+
+class JobProcessed(job_utils.JobProcessed):
+    
+    def __init__(self):
+        job_utils.JobProcessed.__init__(self)
+        
+    def canPurge(self, jobStatus, failureReason=''):
+        return jobStatus=='CANCELLED'
+
+
+class JobPoller(job_poller.JobPoller):
+    
+    def __init__(self, parameters, pManager=None, iManager=None):
+        job_poller.JobPoller.__init__(self, parameters, pManager, iManager)
+        self.finishedJobs = JobProcessed()
+        self.runningJobs = []
+        
+    def put(self, uri, timestamp):
+        self.lock.acquire()
+        job_poller.JobPoller.logger.info("Submitted job: " + uri)
+        self.table[uri] = job_utils.BooleanTimestamp(timestamp)
+        self.lock.release()
+
+    def manageRunningState(self, currId):
+        if self.table[currId].scheduled:
+            job_poller.JobPoller.logger.debug("Cannot reschedule cancel for job %s" % currId)
+        else:
+            self.table[currId].scheduled = True
+            job_poller.JobPoller.logger.debug("Scheduling %s for cancel" % currId)
+            self.runningJobs.append(currId)
+    
+    def processRunningJobs(self):
+        job_utils.eraseJobs(self.runningJobs, cmd='cancel', timeout=self.parameters.sotimeout)
+        self.runningJobs = []
+    
+    def shutdown(self):
+        job_poller.JobPoller.shutdown(self)
+        if self.tableOfResults['CANCELLED']<>self.parameters.numberOfJob:
+            return 1
+        return 0
+
+
+
+def main():
+    
+    parameters = testsuite_utils.Parameters('submit and cancel a sequence of jobs',\
+                                            '[OPTION] -R | --resourceURI RESOURCEURI',\
+                                            '''Submit a given number of jobs with a specified rate \
+and then try to cancel them. The status of each job is monitored polling the service. \
+The test keeps a given number of job running on the CE.''')
+    
+    parameters.register('rate', 'd', 30, testsuite_utils.checkRate, descr='''\
+set the sleep time in seconds between two polling operations \
+(DEFAULT 30s, Min 5s)''')
+    
+    parameters.register('numberOfJob', 'd', 1, testsuite_utils.atLeastOne, descr='''\
+set the number of jobs to submit (DEFAULT 1)''')
+    
+    parameters.register('maxRunningJobs', 'd', 100, testsuite_utils.atLeastOne, descr='''\
+set the max number of job which can be enqueued in the service (DEFAULT 100)''')
+    
+    parameters.register('delegationType', 's', 'single', testsuite_utils.checkRenewType,'D',\
+                        descr='''\
+specify the delegation management type: single, one delegated proxy for all submissions,\
+or multiple, one delegated proxy per job (DEFAULT is single)''')
+    
+    parameters.register('resourceURI', 's', '', testsuite_utils.checkResourceURI, 'R', \
+                        descr='''define the URI of the resource under testing, the format is \
+<host>[:<port>]/cream-<lrms>-<queue>. \
+This option is mandatory and no default value is defined''')
+    
+    parameters.register('maxConcurrentSubmit', 'd', 1, testsuite_utils.atLeastOne, 'C',\
+                        descr='''define the number of concurrent submit, (DEFAULT is 1)''')
+    
+    parameters.register('jdl', 's', descr='''define the path for the jdl file, \
+if omitted a predefined jdl will be used with simple sleep as executable (5 times the rate)''')
+    
+    parameters.register('vo', 's', '', testsuite_utils.checkVO, '', descr='''\
+set the VO name to be used for the test; this parameter is mandatory whenever \
+X509_USER_CERT and X509_USER_KEY are defined, no default is available''')
+        
+    parameters.register('valid', 's', '00:10', testsuite_utils.checkValid, '', descr='''\
+set the voms-proxy duration in the format HH:MM (DEFAULT 00:10)''')
+    
+    parameters.register('queryType','s', 'event',
+                        testsuite_utils.checkQueryType, optChar='Q', descr='''\
+speficy the polling mechanism used for retrieving the status of the jobs.
+The supported types are event (new event query), list (internal job list used) or timestamp (query by timestamp).\
+ The default is event.''')
+    
+    parameters.setDefaultEnvs()
+    parameters.addEnvItem(('MONITORED_CANCEL_CONFIG_FILE','''\
+location of the configuration file for this test. The configuration file contains a list \
+of properties (the format is key=value); the set of keys correspond to the set \
+of the long options of this test'''))
+
+    if os.environ.has_key("MONITORED_CANCEL_CONFIG_FILE"):
+        confFileName = os.environ["MONITORED_CANCEL_CONFIG_FILE"]
+    else:
+        confFileName = None
+
+    parameters.parseConfigFileAndOptList(sys.argv[1:], confFileName)
+
+    testsuite_utils.mainLogger.setup(parameters.logConf)
+
+    if parameters.jdl=='':
+        parameters.jdl = testsuite_utils.createTempJDL(parameters.rate*10)
+        if parameters.jdl==None:
+            sys.exit(1)
+
+    pollerThread = None
+    try:
+        if parameters.interactive:
+            interfaceMan = testsuite_utils.InterfaceManager()
+        else:
+            interfaceMan = None
+        vomsManager = job_utils.VOMSProxyManager(parameters)
+        pollerThread = JobPoller(parameters, vomsManager, interfaceMan)
+        renewalManager = job_utils.ProxyRenewer(parameters, pollerThread, vomsManager)
+    
+        pollerThread.start()
+        renewalManager.start()
+        if parameters.interactive:
+            interfaceMan.run(pollerThread)
+            interfaceMan.close()
+        pollerThread.join()
+        renewalManager.halt()
+    except Exception, ex:
+        print str(ex)
+
+    if pollerThread<>None:
+        sys.exit(pollerThread.shutdown())
+    else:
+        sys.exit(-1)
+    
+if __name__ == "__main__":
+    main()

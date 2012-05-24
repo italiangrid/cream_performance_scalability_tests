@@ -1,0 +1,140 @@
+.TH cream-test-monitored-lease-expired "1" cream-test-monitored-lease-expired "GLITE Testsuite"
+
+.SH NAME:
+cream-test-monitored-lease-expired \- submit a sequence of jobs and let the lease expires for each job
+
+.SH SYNOPSIS
+.B cream-test-monitored-lease-expired
+[OPTION] -R | --resourceURI RESOURCEURI
+
+.SH DESCRIPTION
+Submit a sequence of simple jobs with a specified rate. For each job either a lease is registered or a pre-registered lease is used; the lease is not renewed so the job must be cancelled by the service. The status of the job is retrieved using the GetStatus command.The test keeps a given number of job running on the CE.
+
+.SH OPTIONS
+.HP
+\fB-D\fR, \fB--delegationType\fR
+STRING
+
+.IP
+specify the delegation management type: single, one delegated proxy for all submissions,or multiple, one delegated proxy per job (DEFAULT is single)
+.PP
+.HP
+\fB-h\fR, \fB--help\fR
+
+
+.IP
+Print the man pages for this command
+.PP
+.HP
+\fB--interactive\fR
+
+
+.IP
+Enable the test control via terminal (EXPERIMENTAL)
+.PP
+.HP
+\fB-W\fR, \fB--leaseTime\fR
+NUMBER
+
+.IP
+define the lease time in seconds for a lease, if it is not used a pre-registered lease id (DEFAULT 1200s)
+.PP
+.HP
+\fB-l\fR, \fB--logConf\fR
+STRING
+
+.IP
+Set the location of the configuration file for log4py, (DEFAULT as provided by log4py)
+.PP
+.HP
+\fB-C\fR, \fB--maxConcurrentSubmit\fR
+NUMBER
+
+.IP
+define the number of concurrent submit, (DEFAULT is 1)
+.PP
+.HP
+\fB-m\fR, \fB--maxRunningJobs\fR
+NUMBER
+
+.IP
+set the max number of job which can be enqueued in the service (DEFAULT 100)
+.PP
+.HP
+\fB--nopurge\fR
+
+
+.IP
+Disable the purge operation for all jobs submitted (CRITICAL)
+.PP
+.HP
+\fB-n\fR, \fB--numberOfJob\fR
+NUMBER
+
+.IP
+set the number of jobs to submit (DEFAULT 1)
+.PP
+.HP
+\fB-Q\fR, \fB--queryType\fR
+STRING
+
+.IP
+speficy the polling mechanism used for retrieving the status of the jobs.
+The supported types are event (new event query), list (internal job list used) or timestamp (query by timestamp). The default is event.
+.PP
+.HP
+\fB-r\fR, \fB--rate\fR
+NUMBER
+
+.IP
+set the sleep time in seconds between two polling operations (DEFAULT 30s, Min 5s)
+.PP
+.HP
+\fB-R\fR, \fB--resourceURI\fR
+STRING
+
+.IP
+define the URI of the resource under testing, the format is <host>[:<port>]/cream-<lrms>-<queue>. This option is mandatory and no default value is defined
+.PP
+.HP
+\fB--sotimeout\fR
+NUMBER
+
+.IP
+Socket timeout in seconds (DEFAULT 30s)
+.PP
+.HP
+\fB--valid\fR
+STRING
+
+.IP
+set the voms-proxy duration in the format HH:MM (DEFAULT 00:10)
+.PP
+.HP
+\fB--vo\fR
+STRING
+
+.IP
+set the VO name to be used for the test; this parameter is mandatory whenever X509_USER_CERT and X509_USER_KEY are defined, no default is available
+.PP
+.SH ENVIRONMENT
+.TP
+.B GLITE_LOCATION
+location of gLite packages (DEFAULT=/opt/glite)
+.
+.TP
+.B X509_USER_PROXY
+location of the user proxy
+.
+.TP
+.B X509_USER_CERT
+location of the user certificate, this variable has priority upon the X509_USER_PROXY variable
+.
+.TP
+.B X509_USER_KEY
+location of the user private key. The key must be protected by a passphrase.
+.
+.TP
+.B MONITORED_LEASE_EXP_CONFIG_FILE
+location of the configuration file for this test. The configuration file contains a list of properties (the format is key=value); the set of keys correspond to the set of the long options of this test
+.

@@ -1,0 +1,13 @@
+[
+executable="/bin/cp";
+arguments="grid-mapfile out-`date +%s%N`-`whoami`.txt";
+inputsandbox={
+   "gsiftp://cream-48.pd.infn.it/etc/grid-security/grid-mapfile"
+};
+outputsandbox={
+   "out*.txt"
+};
+outputsandboxbasedesturi="gsiftp://cream-48.pd.infn.it/tmp";
+epilogue="/bin/sleep";
+epiloguearguments="60";
+]
